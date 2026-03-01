@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitHub Event Monitor</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #f6f8fa;
+            color: #24292e;
+            min-height: 100vh;
+        }
+
+        header {
+            background: #24292e;
+            padding: 16px 32px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        header svg {
+            fill: white;
+        }
+
+        header h1 {
+            color: white;
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .container {
+            max-width: 760px;
+            margin: 40px auto;
+            padding: 0 16px;
+        }
+
+        .status-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .status-bar p {
+            font-size: 13px;
+            color: #586069;
+        }
+
+        .dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background: #28a745;
+            border-radius: 50%;
+            margin-right: 6px;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        .event-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .event-card {
+            background: white;
+            border: 1px solid #e1e4e8;
+            border-radius: 8px;
+            padding: 16px 20px;
+            display: flex;
+            align-items: flex-start;
+            gap: 14px;
+            transition: box-shadow 0.2s;
+        }
+
+        .event-card:hover {
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+
+        .badge {
+            font-size: 11px;
+            font-weight: 600;
+            padding: 3px 8px;
+            border-radius: 12px;
+            white-space: nowrap;
+            margin-top: 2px;
+        }
+
+        .badge-push {
+            background: #dbeafe;
+            color: #1d4ed8;
+        }
+
+        .badge-pr {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .badge-merge {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .event-message {
+            font-size: 14px;
+            line-height: 1.5;
+            color: #24292e;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #586069;
+        }
+
+        .empty-state p {
+            font-size: 15px;
+        }
+
+        .countdown {
+            font-size: 12px;
+            color: #586069;
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <svg height="24" width="24" viewBox="0 0 16 16">
+        <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38
+        0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13
+        -.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07
+        -.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08
+        -.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09
+        2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82
+        2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01
+        2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+    </svg>
+    <h1>GitHub Event Monitor</h1>
+</header>
+
+<div class="container">
+    <div class="status-bar">
+        <p><span class="dot"></span>Live — refreshes every 15 seconds</p>
+        <p class="countdown" id="countdown">Next refresh in 15s</p>
+    </div>
+
+    <div class="event-list" id="eventList">
+        <div class="empty-state"><p>Waiting for events...</p></div>
+    </div>
+</div>
+
+<script>
+    let seenIds = new Set();
+    let countdown = 15;
+
+    function getBadgeClass(action) {
+        if (action === "PUSH") return "badge-push";
+        if (action === "PULL_REQUEST") return "badge-pr";
+        if (action === "MERGE") return "badge-merge";
+        return "";
+    }
+
+    function getBadgeLabel(action) {
+        if (action === "PUSH") return "Push";
+        if (action === "PULL_REQUEST") return "Pull Request";
+        if (action === "MERGE") return "Merge";
+        return action;
+    }
+
+    function fetchEvents() {
+        fetch("/events")
+            .then(res => res.json())
+            .then(data => {
+                const list = document.getElementById("eventList");
+
+                if (data.length === 0 && seenIds.size === 0) {
+                    list.innerHTML = '<div class="empty-state"><p>Waiting for GitHub events...</p></div>';
+                    return;
+                }
+
+                let hasNew = false;
+                data.forEach(event => {
+                    if (!seenIds.has(event.request_id)) {
+                        hasNew = true;
+                    }
+                });
+
+                if (!hasNew) return;
+
+                list.innerHTML = "";
+                seenIds = new Set();
+
+                data.forEach(event => {
+                    seenIds.add(event.request_id);
+                    const card = document.createElement("div");
+                    card.className = "event-card";
+                    card.innerHTML = `
+                        <span class="badge ${getBadgeClass(event.action)}">${getBadgeLabel(event.action)}</span>
+                        <p class="event-message">${event.message}</p>
+                    `;
+                    list.appendChild(card);
+                });
+            })
+            .catch(() => {});
+    }
+
+    function startCountdown() {
+        countdown = 15;
+        const el = document.getElementById("countdown");
+        const timer = setInterval(() => {
+            countdown--;
+            el.textContent = `Next refresh in ${countdown}s`;
+            if (countdown <= 0) {
+                clearInterval(timer);
+                fetchEvents();
+                startCountdown();
+            }
+        }, 1000);
+    }
+
+    fetchEvents();
+    startCountdown();
+</script>
+
+</body>
+</html>
