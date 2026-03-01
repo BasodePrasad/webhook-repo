@@ -4,6 +4,10 @@ from datetime import datetime
 import os
 
 app = Flask(__name__)
+@app.after_request
+def add_ngrok_header(response):
+    response.headers["ngrok-skip-browser-warning"] = "true"
+    return response
 
 client = MongoClient(os.environ.get("MONGO_URI", "mongodb://localhost:27017/"))
 db = client["github_events"]
@@ -20,7 +24,7 @@ def format_timestamp(ts_string):
         suffix = "nd"
     elif day in [3, 23]:
         suffix = "rd"
-    return dt.strftime(f"%-d{suffix} %B %Y - %-I:%M %p UTC")
+    return dt.strftime(f"%d{suffix} %B %Y - %I:%M %p UTC")
 
 
 @app.route("/")
